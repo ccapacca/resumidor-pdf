@@ -1,0 +1,11 @@
+# API Keys - nunca subir a GitHub
+.streamlit/secrets.toml
+
+# Entorno virtual
+venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+.DS_Store
