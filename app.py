@@ -5,7 +5,7 @@ import io
 
 st.set_page_config(
     page_title="Resumidor de PDFs",
-    page_icon="📄",  # El icono de la pestaña lo dejamos como identificativo, pero en la UI no usamos emojis
+    page_icon="📄",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -158,9 +158,6 @@ section[data-testid="stSidebarContent"] { padding: 0 !important; }
     background-color: #22C55E;
     margin-right: 6px;
 }
-
-/* Eliminar animaciones molestas */
-@keyframes none { }
 </style>
 """, unsafe_allow_html=True)
 
@@ -205,6 +202,14 @@ IMPORTANTE: Si el texto está cortado, indica que el documento es más largo y r
         temperature=0.3
     )
     return response.choices[0].message.content
+
+def limpiar_estado():
+    """Restablece todas las variables de sesión para volver al menú principal."""
+    st.session_state.resumen = None
+    st.session_state.nombre_archivo = None
+    st.session_state.num_paginas = 0
+    st.session_state.num_palabras = 0
+    # No se puede limpiar el file_uploader directamente, pero al hacer rerun se reinicia
 
 # ── Estado inicial ────────────────────────────────────────────────────────
 if "resumen" not in st.session_state:
@@ -280,6 +285,14 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
+    # Botón de "Nuevo documento" en sidebar (siempre visible cuando hay resumen)
+    if st.session_state.resumen:
+        st.markdown('<div style="margin-top:20px;">', unsafe_allow_html=True)
+        if st.button("🞷 Nuevo documento", use_container_width=True):
+            limpiar_estado()
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
     # Pie del sidebar
@@ -320,7 +333,7 @@ st.markdown("""
 
 st.markdown('<div style="padding:28px 32px;">', unsafe_allow_html=True)
 
-# ── ZONA DE CARGA ─────────────────────────────────────────────────────────
+# ── ZONA DE CARGA (siempre visible) ───────────────────────────────────────
 archivo_pdf = st.file_uploader(
     "Arrastra tu archivo PDF o haz clic para examinar",
     type=["pdf"],
@@ -328,15 +341,23 @@ archivo_pdf = st.file_uploader(
 )
 
 if archivo_pdf is not None:
-    with st.spinner("Procesando documento..."):
-        texto, num_paginas = extraer_texto_pdf(archivo_pdf)
-        num_palabras = len(texto.split())
+    # Si se sube un archivo nuevo, limpiamos el resumen anterior automáticamente
+    if st.session_state.nombre_archivo != archivo_pdf.name:
+        limpiar_estado()
+        st.session_state.nombre_archivo = archivo_pdf.name  # Para detectar cambio
 
-        st.session_state.num_paginas = num_paginas
-        st.session_state.num_palabras = num_palabras
-        st.session_state.nombre_archivo = archivo_pdf.name
+    # Procesamos el PDF (solo si no tenemos ya resumen para este archivo)
+    if not st.session_state.resumen:
+        with st.spinner("Procesando documento..."):
+            texto, num_paginas = extraer_texto_pdf(archivo_pdf)
+            num_palabras = len(texto.split())
+            st.session_state.num_paginas = num_paginas
+            st.session_state.num_palabras = num_palabras
+            st.session_state.nombre_archivo = archivo_pdf.name
+            # Guardamos el texto en el estado para usarlo en el resumen
+            st.session_state.texto_completo = texto
 
-    # Tarjeta de archivo cargado (sin emojis, con icono unicode simple)
+    # Tarjeta de archivo cargado
     st.markdown(f"""
     <div style="background:#F0F9FF;border-left:4px solid #2563EB;border-radius:6px;
         padding:16px 20px;margin:16px 0;display:flex;align-items:center;gap:14px;">
@@ -346,19 +367,26 @@ if archivo_pdf is not None:
                 {archivo_pdf.name}
             </div>
             <div style="font-size:12px;color:#475569;margin-top:3px;">
-                {num_paginas} páginas · {num_palabras:,} palabras · listo para procesar
+                {st.session_state.num_paginas} páginas · {st.session_state.num_palabras:,} palabras · listo para procesar
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # Botón de generar resumen
-    if st.button(f"Generar {tipo_resumen}", use_container_width=True):
-        with st.spinner("Analizando el documento..."):
-            resumen = resumir_texto(texto, tipo_resumen, idioma)
-            st.session_state.resumen = resumen
+    # Botón de generar resumen (solo si no hay resumen aún)
+    if not st.session_state.resumen:
+        if st.button(f"Generar {tipo_resumen}", use_container_width=True):
+            with st.spinner("Analizando el documento..."):
+                resumen = resumir_texto(st.session_state.texto_completo, tipo_resumen, idioma)
+                st.session_state.resumen = resumen
+            st.rerun()
 
 else:
+    # Si se quitó el archivo (usuario hizo clic en la X), limpiamos todo
+    if st.session_state.nombre_archivo is not None:
+        limpiar_estado()
+        st.rerun()
+
     # Estado vacío profesional
     st.markdown("""
     <div style="display:flex;flex-direction:column;align-items:center;
@@ -405,5 +433,10 @@ if st.session_state.resumen:
             mime="text/plain",
             use_container_width=True
         )
+    with col2:
+        # Botón de "Nuevo documento" debajo del resumen (más visible)
+        if st.button("🞷 Nuevo documento", key="nuevo_doc_main", use_container_width=True):
+            limpiar_estado()
+            st.rerun()
 
 st.markdown('</div>', unsafe_allow_html=True)
